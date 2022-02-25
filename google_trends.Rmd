@@ -1,0 +1,117 @@
+---
+title: "Google Trends"
+output: html_document
+---
+
+# Install Packages
+```{r}
+library(gtrendsR)
+library(dplyr)
+library(ggplot2)
+library(readr) 
+library(purrr) 
+library(scales)
+```
+
+# Download Data
+```{r}
+# search_terms = c("banjir", "zoom", "lathi", "pra kerja", "Crash Landing on You", "kekeyi", "google classroom", "Glenn Fredly", 
+#                  "Bintang Emong", "masker", "corona", "sepeda", "75 ribu", "drakor", "among us", "dalgona", "vaksin", "wfh",  
+#                  "psbb", "stimulus", "odading", "kuota", "omnibus", "umkm", "pilkada", "fpi")
+search_terms = c("banjir", "Crash Landing on You", "corona", "zoom", "dalgona", "Glenn Fredly", "psbb", "pra kerja",
+                 "Bintang Emon", "sepeda", "75 ribu", "odading", "among us", "omnibus", "umkm", "pilkada")
+country <- "ID"
+time <- "today 12-m"
+channel <- "web"
+results <- data.frame()
+
+for (i in search_terms) {
+  channel='web'
+  trends = gtrends(keyword=i, gprop = channel, geo = country, time = time)
+  results <- rbind(results, trends$interest_over_time)
+} 
+
+df_trend <- results
+```
+
+## Levels processing
+```{r}
+library(plyr)
+keyword_level <- factor(search_terms, levels = search_terms)
+class_group <-c("a", "b", "c", "d")
+v <- rep(class_group, round_any(length(keyword_level) / length(class_group), 1, f = ceiling))
+df_keyword_level <- data.frame(keyword=keyword_level, class_group = v[0:length(keyword_level)])
+df_keyword_level
+```
+
+## Merging by keyword
+```{r}
+df_trend <- merge(x = df_trend, y = df_keyword_level, by = "keyword")
+df_trend
+```
+
+## Color processing
+```{r}
+df_trend %>% 
+  mutate(colour_group = case_when(class_group == "a" ~  "#4285F4",
+                        class_group == "b" ~ "#DB4437",
+                        class_group == "c" ~ "#F4B400",
+                        class_group == "d" ~ "#0F9D58")) -> df_trend 
+df_trend 
+```
+
+## Revalue
+```{r}
+library(plyr)
+df_trend$hits <- as.character(df_trend$hits)
+df_trend$hits <- revalue(df_trend$hits, c("<1"="0"))
+df_trend$hits <- as.integer(df_trend$hits)
+```
+
+## Tes Filter
+```{r}
+df_trend %>%
+  filter(keyword %in% search_terms) -> df_trend_filtered 
+```
+
+## Change date into week
+```{r}
+library(dplyr)
+detach(package:plyr)
+# MUST DETEACH PLYR
+df_trend_filtered$week_date <- as.Date(format(df_trend_filtered$date,"%Y-%W-1"),"%Y-%W-%u")
+df_trend_filtered %>%
+  group_by(keyword, colour_group, week_date) %>%
+  summarize(hits = sum(hits)) -> df_trend_filtered
+```
+
+## Order keyword
+```{r}
+neworder <- search_terms
+df_trend_filtered <- arrange(transform(df_trend_filtered,
+             keyword=factor(keyword,levels=neworder)), keyword)
+```
+
+## Plotting
+```{r}
+df_trend_filtered %>%
+  ggplot(aes(x = week_date, y = hits)) +
+    geom_area(fill = df_trend_filtered$colour_group) +
+    scale_colour_manual(values=df_trend_filtered$colour_group) +
+    facet_grid(keyword~., scales = "free", switch = "y", labeller = label_wrap_gen(width=10)) +
+    ggthemes::theme_economist() +
+    theme(axis.title.y=element_blank()
+          , axis.text.y=element_blank()
+          , panel.grid.major.y = element_blank() 
+           # explicitly set the horizontal lines (or they will disappear too)
+          , panel.grid.major.x = element_line(size=.1, color="black") 
+          , strip.text.y.left = element_text(size = 15, angle = 0, face = "bold")
+          , panel.spacing.y = unit(0.6, "lines")
+          , axis.title = element_text(face = "bold")) + 
+  xlab("\nMonth [2020]") + 
+  scale_x_date(date_labels = "%B") -> plot
+```
+
+```{r fig.height = 2, fig.width = 5}
+plot
+```
